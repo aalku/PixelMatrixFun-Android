@@ -42,7 +42,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends AppCompatActivity {
 
-    public static final int TX_SIZE = 512; // Max 512
+    public static final int TX_SIZE = 256; // Max 512
 
     AtomicReference<Bitmap> readyToSendBitmap = new AtomicReference<>(null);
 
@@ -130,7 +130,7 @@ public class MainActivity extends AppCompatActivity {
                 @RequiresApi(api = Build.VERSION_CODES.M)
                 @Override
                 public void onBatchScanResults(List<ScanResult> results) {
-                    scanner.stopScan(this);
+                    scanner.stopScan(this); // Enough
                     for (ScanResult r : results) {
                         Log.w("BLE", "  onBatchScanResults[*]: " + r);
                         String deviceName = r.getScanRecord().getDeviceName();
@@ -181,19 +181,25 @@ public class MainActivity extends AppCompatActivity {
 
                                 @Override
                                 public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-                                    for (BluetoothGattService s: gatt.getServices()) {
-                                        if (s.getUuid().equals(serviceUUID)) {
-                                            Log.i("BLE", "Found service!!");
-                                            BluetoothGattCharacteristic c = s.getCharacteristic(writeCharacteristicUUID);
-                                            Bitmap bitmap = readyToSendBitmap.get();
-                                            if (bitmap != null) {
-                                                sendBitmap(gatt, c, bitmap);
-                                            } else {
-                                                bitmap = Bitmap.createBitmap(16,16, Bitmap.Config.ARGB_8888);
-                                                // Black?
-                                                sendBitmap(gatt, c, bitmap);
-                                            }
+                                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                                        Log.e("BLE", "Can't discover services!!");
+                                        gatt.disconnect();
+                                    }
+                                    BluetoothGattService s = gatt.getService(serviceUUID);
+                                    if (s != null) {
+                                        Log.i("BLE", "Found service!!");
+                                        BluetoothGattCharacteristic c = s.getCharacteristic(writeCharacteristicUUID);
+                                        Bitmap bitmap = readyToSendBitmap.get();
+                                        Log.i("BLE", "Sending image...");
+                                        if (bitmap != null) {
+                                            sendBitmap(gatt, c, bitmap);
+                                        } else {
+                                            bitmap = Bitmap.createBitmap(16,16, Bitmap.Config.ARGB_8888);
+                                            // Black?
+                                            sendBitmap(gatt, c, bitmap);
                                         }
+                                    } else {
+                                        Log.i("BLE", "Service not found!!");
                                     }
                                 }
 
