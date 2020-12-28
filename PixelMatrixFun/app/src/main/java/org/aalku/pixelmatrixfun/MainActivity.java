@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -36,11 +37,13 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends AppCompatActivity {
@@ -49,20 +52,24 @@ public class MainActivity extends AppCompatActivity {
 
     AtomicReference<Bitmap> readyToSendBitmap = new AtomicReference<>(null);
 
-    private static final UUID serviceUUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab1");
-    private static final UUID writeCharacteristicUUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab2");
+    private static final UUID SERVICE_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab1");
+    private static final UUID SEND_BITMAP_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab2");
+    private static final UUID HELO_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab3");
+    private static final UUID CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+
     private static final String REFERENCE_DEVICE_NAME = "PixelMatrixFun";
     private TextView statusText;
 
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 
-    private final AtomicBoolean bleConnecting = new AtomicBoolean(false);
+    private final AtomicLong bleConnectingSince = new AtomicLong(0L);
     private final AtomicBoolean bleConnected = new AtomicBoolean(false);
     private final AtomicReference<BluetoothGatt> gattRef = new AtomicReference(null);
     private final AtomicReference<BluetoothGattService> serviceRef = new AtomicReference(null);
 
     private final AtomicReference<ByteArrayInputStream> currentlySending = new AtomicReference<>(null);
 
+    private final AtomicLong lastHelo =  new AtomicLong(0L);
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     @Override
@@ -71,8 +78,29 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         statusText = this.findViewById(R.id.statusText);
         executor.scheduleWithFixedDelay(()->{
-            bleConnect();
-        }, 0, 10, TimeUnit.SECONDS);
+            long lastHelo = this.lastHelo.get();
+            double lastHeloAgoSeconds = lastHelo <= 0L ? 0L : (System.currentTimeMillis() - lastHelo) / 1000.0;
+            Log.d("BLE", "Last HELO was " + lastHeloAgoSeconds + "s ago");
+            if (bleConnected.get() && lastHelo > 0 && lastHeloAgoSeconds > 3d) {
+                setStatusText("Connection might be lost!");
+                /* Disconnecting seems not useful. You can't connect fast after that */
+                // Optional.ofNullable(gattRef.get()).ifPresent(g->g.disconnect());
+            } else if (!bleConnected.get() && bleConnectingSince.get() == 0) {
+                bleTryConnect();
+            } else if (bleConnectingSince.get() > 0) {
+                long since = bleConnectingSince.get();
+                if (since > 0 && (System.currentTimeMillis() - since) > 5000) {
+                    BluetoothGatt gatt = gattRef.get();
+                    if (gatt != null) {
+                        gatt.disconnect();
+                    } else {
+                        synchronized (bleConnected) {
+                            bleConnectingSince.set(0L);
+                        }
+                    }
+                }
+            }
+        }, 0, 1, TimeUnit.SECONDS);
 
         int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION);
         if (permissionCheck != PackageManager.PERMISSION_GRANTED){
@@ -141,7 +169,7 @@ public class MainActivity extends AppCompatActivity {
         BluetoothGattService s = serviceRef.get();
         BluetoothGatt gatt = gattRef.get();
         if (checkConnected(s, gatt)) {
-            BluetoothGattCharacteristic c = s.getCharacteristic(writeCharacteristicUUID);
+            BluetoothGattCharacteristic c = s.getCharacteristic(SEND_BITMAP_UUID);
             Bitmap bitmap = readyToSendBitmap.get();
             Log.i("BLE", "Sending image...");
             if (bitmap != null) {
@@ -188,18 +216,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
-    void bleConnect() {
+    void bleTryConnect() {
         Log.d("BLE", "bleConnect()");
         synchronized (bleConnected) {
             if (bleConnected.get()) {
                 Log.d("BLE", "Already connected.");
                 return;
-            } else if (bleConnecting.get()) {
+            } else if (bleConnectingSince.get() > 0) {
                 Log.d("BLE", "Already connecting.");
                 return;
             } else {
                 Log.d("BLE", "Need to scan.");
-                bleConnecting.set(true);
+                bleConnectingSince.set(System.currentTimeMillis());
             }
         }
         setStatusText("...");
@@ -219,7 +247,7 @@ public class MainActivity extends AppCompatActivity {
                     scanner.stopScan(this); // Enough
                     if (results.size() == 0) {
                         synchronized (bleConnected) {
-                            bleConnecting.set(false);
+                            bleConnectingSince.set(0L);
                             String msg = "MatrixPixelFun not found";
                             setStatusText(msg);
                             return;
@@ -236,17 +264,20 @@ public class MainActivity extends AppCompatActivity {
                                 @Override
                                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                                        setStatusText("Discovering device services ...");
-                                        gatt.discoverServices();
+                                        executor.schedule(()->{
+                                            setStatusText("Discovering device services ...");
+                                            gatt.discoverServices();
+                                        }, 100, TimeUnit.MILLISECONDS);
                                     } else {
                                         synchronized (bleConnected) {
+                                            gatt.disconnect();
+                                            gatt.close();
                                             setStatusText("MatrixPixelFun was disconnected");
                                             bleConnected.set(false);
                                             serviceRef.set(null);
                                             gattRef.set(null);
-                                            bleConnecting.set(false);
+                                            bleConnectingSince.set(0L);
                                         }
-                                        gatt.close();
                                     }
                                 }
 
@@ -255,20 +286,42 @@ public class MainActivity extends AppCompatActivity {
                                     if (status != BluetoothGatt.GATT_SUCCESS) {
                                         Log.e("BLE", "Can't discover services!!");
                                         gatt.disconnect();
+                                        return;
                                     }
-                                    BluetoothGattService s = gatt.getService(serviceUUID);
+                                    BluetoothGattService s = gatt.getService(SERVICE_UUID);
                                     if (s != null) {
                                         Log.i("BLE", "Found service!!");
+                                        BluetoothGattCharacteristic heloChar = s.getCharacteristic(HELO_UUID);
+                                        if (heloChar == null) {
+                                            lastHelo.set(-1);
+                                        } else {
+                                            lastHelo.set(0L);
+                                        }
+                                        if (gatt.setCharacteristicNotification(heloChar, true)) {
+                                            BluetoothGattDescriptor descriptor = heloChar.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
+                                            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                                            gatt.writeDescriptor(descriptor);
+                                        }
+
                                         setStatusText("MatrixPixelFun is ready.");
+                                        // gatt.requestMtu(256);
                                         synchronized (bleConnected) {
                                             gattRef.set(gatt);
                                             serviceRef.set(s);
                                             bleConnected.set(true);
-                                            bleConnecting.set(false);
+                                            bleConnectingSince.set(0L);
                                         }
                                     } else {
                                         Log.i("BLE", "Service not found!!");
                                         gatt.disconnect();
+                                    }
+                                }
+
+                                @Override
+                                public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+                                    Log.d("BLE", "CharacteristicsChanged: " + characteristic);
+                                    if (characteristic.getUuid().equals(HELO_UUID)) {
+                                        lastHelo.set(System.currentTimeMillis());
                                     }
                                 }
 
@@ -287,6 +340,11 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     super.onBatchScanResults(results);
+                }
+
+                @Override
+                public void onScanResult(int callbackType, ScanResult result) {
+                    Log.d("BLE", "onScanResult(" + result +")");
                 }
 
                 @Override
