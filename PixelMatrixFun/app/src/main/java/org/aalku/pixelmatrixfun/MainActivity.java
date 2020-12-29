@@ -28,12 +28,13 @@ public class MainActivity extends AppCompatActivity {
     AtomicReference<Bitmap> readyToSendBitmap = new AtomicReference<>(null);
     private DeviceService deviceService;
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
+    @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        this.deviceService = new DeviceService(this);
-                setContentView(R.layout.activity_main);
+        deviceService = new DeviceService(getBaseContext());
+        deviceService.addStatusListener(s->setStatusText(s));
+        setContentView(R.layout.activity_main);
         statusText = this.findViewById(R.id.statusText);
 
         int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION);
@@ -98,7 +99,7 @@ public class MainActivity extends AppCompatActivity {
         return Bitmap.createBitmap(bitmap, xo, yo, size, size);
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+    @RequiresApi(api = Build.VERSION_CODES.N)
     public void send(View view) {
         deviceService.sendBitmap(readyToSendBitmap.get());
     }
@@ -106,5 +107,16 @@ public class MainActivity extends AppCompatActivity {
     protected void setStatusText(String msg) {
         Log.i("STATUS", msg);
         this.runOnUiThread(()->statusText.setText(msg));
+    }
+
+    public void startDrawActivity(View view) {
+        Intent intent = new Intent(this, DrawActivity.class);
+        startActivity(intent);
+    }
+
+    @Override
+    protected void onResume() {
+        setStatusText(deviceService.getStatusText());
+        super.onResume();
     }
 }

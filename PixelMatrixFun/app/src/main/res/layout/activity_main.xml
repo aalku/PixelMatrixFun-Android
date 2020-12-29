@@ -75,4 +75,13 @@
         app:layout_constraintHorizontal_bias="0.067"
         app:layout_constraintStart_toStartOf="parent" />
 
+    <Button
+        android:id="@+id/drawButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:onClick="startDrawActivity"
+        android:text="Draw"
+        tools:layout_editor_absoluteX="75dp"
+        tools:layout_editor_absoluteY="471dp" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

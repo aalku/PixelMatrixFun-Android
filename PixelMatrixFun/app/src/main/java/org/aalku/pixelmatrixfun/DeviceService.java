@@ -1,6 +1,5 @@
 package org.aalku.pixelmatrixfun;
 
-import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -14,18 +13,18 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
-import android.content.Intent;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.os.Binder;
 import android.os.Build;
-import android.os.IBinder;
 import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -35,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 public class DeviceService {
 
@@ -52,24 +52,26 @@ public class DeviceService {
 
     private final AtomicLong bleConnectingSince = new AtomicLong(0L);
     private final AtomicBoolean bleConnected = new AtomicBoolean(false);
-    private final AtomicReference<BluetoothGatt> gattRef = new AtomicReference(null);
-    private final AtomicReference<BluetoothGattService> serviceRef = new AtomicReference(null);
+    private final AtomicReference<BluetoothGatt> gattRef = new AtomicReference<>(null);
+    private final AtomicReference<BluetoothGattService> serviceRef = new AtomicReference<>(null);
 
     private final AtomicReference<ByteArrayInputStream> currentlySending = new AtomicReference<>(null);
 
     private final AtomicLong lastHelo =  new AtomicLong(0L);
 
-    private MainActivity mainActivity;
+    private AtomicReference<String> statusText = new AtomicReference<>("");
+    private Collection<Consumer<String>> statusListeners = new ArrayList<>();
+    private Context context;
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    DeviceService(MainActivity mainActivity) {
-        this.mainActivity = mainActivity;
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    DeviceService(Context baseContext) {
+        context = baseContext;
         executor.scheduleWithFixedDelay(() -> {
             long lastHelo = this.lastHelo.get();
             double lastHeloAgoSeconds = lastHelo <= 0L ? 0L : (System.currentTimeMillis() - lastHelo) / 1000.0;
             Log.d("BLE", "Last HELO was " + lastHeloAgoSeconds + "s ago");
             if (bleConnected.get() && lastHelo > 0 && lastHeloAgoSeconds > 3d) {
-                mainActivity.setStatusText("Connection might be lost!");
+                setStatusText("Connection might be lost!");
                 /* Disconnecting seems not useful. You can't connect fast after that */
                 // Optional.ofNullable(gattRef.get()).ifPresent(g->g.disconnect());
             } else if (!bleConnected.get() && bleConnectingSince.get() == 0) {
@@ -90,7 +92,7 @@ public class DeviceService {
         }, 0, 1, TimeUnit.SECONDS);
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+    @RequiresApi(api = Build.VERSION_CODES.N)
     public void sendBitmap(Bitmap bitmap) {
         BluetoothGattService s = serviceRef.get();
         BluetoothGatt gatt = gattRef.get();
@@ -107,7 +109,7 @@ public class DeviceService {
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+    @RequiresApi(api = Build.VERSION_CODES.N)
     private boolean checkConnected(BluetoothGattService s, BluetoothGatt gatt) {
         return bleConnected.get() && s != null && gatt != null;
     }
@@ -133,7 +135,7 @@ public class DeviceService {
         return out;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
+    @RequiresApi(api = Build.VERSION_CODES.N)
     void bleTryConnect() {
         Log.d("BLE", "bleConnect()");
         synchronized (bleConnected) {
@@ -148,17 +150,17 @@ public class DeviceService {
                 bleConnectingSince.set(System.currentTimeMillis());
             }
         }
-        mainActivity.setStatusText("...");
+        setStatusText("...");
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         adapter.cancelDiscovery();
         BluetoothLeScanner scanner = adapter.getBluetoothLeScanner();
 
         if (scanner != null) {
-            mainActivity.setStatusText("Scanning...");
+            setStatusText("Scanning...");
             ScanSettings scanSettings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES).setReportDelay(1000).build();
             List<ScanFilter> filters = Collections.singletonList(new ScanFilter.Builder().setDeviceName(REFERENCE_DEVICE_NAME).build());
             ScanCallback scanCallback = new ScanCallback() {
-                @RequiresApi(api = Build.VERSION_CODES.M)
+                @RequiresApi(api = Build.VERSION_CODES.N)
                 @Override
                 public void onBatchScanResults(List<ScanResult> results) {
                     Log.d("BLE", "  onBatchScanResults(results.size=" + results.size() + ")");
@@ -167,7 +169,7 @@ public class DeviceService {
                         synchronized (bleConnected) {
                             bleConnectingSince.set(0L);
                             String msg = "MatrixPixelFun not found";
-                            mainActivity.setStatusText(msg);
+                            setStatusText(msg);
                             return;
                         }
                     }
@@ -175,7 +177,7 @@ public class DeviceService {
                         Log.w("BLE", "  onBatchScanResults[*]: " + r);
                         String deviceName = r.getScanRecord().getDeviceName();
                         if (deviceName != null && deviceName.equals(REFERENCE_DEVICE_NAME)) {
-                            mainActivity.setStatusText("Found MatrixPixelFun ...");
+                            setStatusText("Found MatrixPixelFun ...");
                             Log.w("BLE", "  connecting to " + deviceName + "...");
                             BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
 
@@ -183,14 +185,14 @@ public class DeviceService {
                                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                                         executor.schedule(()->{
-                                            mainActivity.setStatusText("Discovering device services ...");
+                                            setStatusText("Discovering device services ...");
                                             gatt.discoverServices();
                                         }, 100, TimeUnit.MILLISECONDS);
                                     } else {
                                         synchronized (bleConnected) {
                                             gatt.disconnect();
                                             gatt.close();
-                                            mainActivity.setStatusText("MatrixPixelFun was disconnected");
+                                            setStatusText("MatrixPixelFun was disconnected");
                                             bleConnected.set(false);
                                             serviceRef.set(null);
                                             gattRef.set(null);
@@ -221,7 +223,7 @@ public class DeviceService {
                                             gatt.writeDescriptor(descriptor);
                                         }
 
-                                        mainActivity.setStatusText("MatrixPixelFun is ready.");
+                                        setStatusText("MatrixPixelFun is ready.");
                                         // gatt.requestMtu(256);
                                         synchronized (bleConnected) {
                                             gattRef.set(gatt);
@@ -254,7 +256,7 @@ public class DeviceService {
                                     }
                                 }
                             };
-                            r.getDevice().connectGatt(mainActivity.getBaseContext(), false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+                            r.getDevice().connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
                         }
                     }
                     super.onBatchScanResults(results);
@@ -279,7 +281,7 @@ public class DeviceService {
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+    @RequiresApi(api = Build.VERSION_CODES.N)
     private void internalWrite(BluetoothGatt gatt, byte[] bytes, BluetoothGattCharacteristic c) {
         if (bytes != null) {
             // New
@@ -305,16 +307,32 @@ public class DeviceService {
             Log.i("BLE", "Sent " + buffer.length + " " + (ok?"ok":"fail!"));
         } else {
             Log.i("BLE", "Sent!!");
-            mainActivity.setStatusText("Sent!! PixelMatrixFun is ready.");
+            setStatusText("Sent!! PixelMatrixFun is ready.");
             this.currentlySending.set(null);
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+    @RequiresApi(api = Build.VERSION_CODES.N)
     private void sendBitmap(BluetoothGatt gatt, BluetoothGattCharacteristic c, Bitmap bitmap) {
         byte[] pixelsBytes = getBitmapBytes(bitmap);
-        mainActivity.setStatusText("Sending bitmap...");
+        setStatusText("Sending bitmap...");
         internalWrite(gatt, pixelsBytes, c);
+    }
+
+    public String getStatusText() {
+        return statusText.get();
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void setStatusText(String s) {
+        this.statusText.set(s);
+        for (Consumer<String> c: statusListeners) {
+            c.accept(s);
+        }
+    }
+
+    public void addStatusListener(Consumer<String> x) {
+        statusListeners.add(x);
     }
 
 }
