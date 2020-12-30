@@ -17,16 +17,19 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Build;
+import android.os.Parcelable;
 import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -37,6 +40,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public class DeviceService {
+
+    public static DeviceService instance;
 
     public static final int TX_SIZE = 256; // Max 512
 
@@ -58,24 +63,34 @@ public class DeviceService {
     private final AtomicReference<ByteArrayInputStream> currentlySending = new AtomicReference<>(null);
 
     private final AtomicLong lastHelo =  new AtomicLong(0L);
+    private final AtomicReference<BluetoothGattCharacteristic> heloChar = new AtomicReference<>(null);
 
     private AtomicReference<String> statusText = new AtomicReference<>("");
     private Collection<Consumer<String>> statusListeners = new ArrayList<>();
     private Context context;
 
     @RequiresApi(api = Build.VERSION_CODES.N)
-    DeviceService(Context baseContext) {
+    public DeviceService(Context baseContext) {
+        synchronized (this.getClass()) {
+            if (instance != null) {
+                throw new IllegalStateException("DeviceService was created twice");
+            }
+            instance = this;
+        }
         context = baseContext;
+
         executor.scheduleWithFixedDelay(() -> {
             long lastHelo = this.lastHelo.get();
             double lastHeloAgoSeconds = lastHelo <= 0L ? 0L : (System.currentTimeMillis() - lastHelo) / 1000.0;
-            Log.d("BLE", "Last HELO was " + lastHeloAgoSeconds + "s ago");
-            if (bleConnected.get() && lastHelo > 0 && lastHeloAgoSeconds > 3d) {
-                setStatusText("Connection might be lost!");
-                /* Disconnecting seems not useful. You can't connect fast after that */
-                // Optional.ofNullable(gattRef.get()).ifPresent(g->g.disconnect());
-            } else if (!bleConnected.get() && bleConnectingSince.get() == 0) {
-                bleTryConnect();
+            Log.d("BLE", this + " - Last HELO was " + lastHeloAgoSeconds + "s ago");
+            if (bleConnected.get()) {
+                if (lastHelo > 0 && lastHeloAgoSeconds > 5d) {
+                    setStatusText("Connection might be lost!");
+                    /* Disconnecting seems not useful. You can't connect fast after that */
+                    // Optional.ofNullable(gattRef.get()).ifPresent(g->g.disconnect());
+                } else {
+                    setStatusText("PixelMatrixFun is connected and ready.");
+                }
             } else if (bleConnectingSince.get() > 0) {
                 long since = bleConnectingSince.get();
                 if (since > 0 && (System.currentTimeMillis() - since) > 5000) {
@@ -88,8 +103,11 @@ public class DeviceService {
                         }
                     }
                 }
+            } else {
+                bleTryConnect();
             }
         }, 0, 1, TimeUnit.SECONDS);
+
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
@@ -137,16 +155,16 @@ public class DeviceService {
 
     @RequiresApi(api = Build.VERSION_CODES.N)
     void bleTryConnect() {
-        Log.d("BLE", "bleConnect()");
+        Log.d("BLE", this + " - bleConnect()");
         synchronized (bleConnected) {
             if (bleConnected.get()) {
-                Log.d("BLE", "Already connected.");
+                Log.d("BLE", this + " - Already connected.");
                 return;
             } else if (bleConnectingSince.get() > 0) {
-                Log.d("BLE", "Already connecting.");
+                Log.d("BLE", this + " - Already connecting.");
                 return;
             } else {
-                Log.d("BLE", "Need to scan.");
+                Log.d("BLE", this + " - Need to scan.");
                 bleConnectingSince.set(System.currentTimeMillis());
             }
         }
@@ -163,13 +181,12 @@ public class DeviceService {
                 @RequiresApi(api = Build.VERSION_CODES.N)
                 @Override
                 public void onBatchScanResults(List<ScanResult> results) {
-                    Log.d("BLE", "  onBatchScanResults(results.size=" + results.size() + ")");
+                    Log.d("BLE", this + " -   onBatchScanResults(results.size=" + results.size() + ")");
                     scanner.stopScan(this); // Enough
                     if (results.size() == 0) {
                         synchronized (bleConnected) {
                             bleConnectingSince.set(0L);
-                            String msg = "MatrixPixelFun not found";
-                            setStatusText(msg);
+                            setStatusText("MatrixPixelFun not found");
                             return;
                         }
                     }
@@ -184,56 +201,26 @@ public class DeviceService {
                                 @Override
                                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                                        executor.schedule(()->{
-                                            setStatusText("Discovering device services ...");
-                                            gatt.discoverServices();
-                                        }, 100, TimeUnit.MILLISECONDS);
+                                        onBleConnected(gatt);
                                     } else {
-                                        synchronized (bleConnected) {
-                                            gatt.disconnect();
-                                            gatt.close();
-                                            setStatusText("MatrixPixelFun was disconnected");
-                                            bleConnected.set(false);
-                                            serviceRef.set(null);
-                                            gattRef.set(null);
-                                            bleConnectingSince.set(0L);
-                                        }
+                                        onDisconnected(gatt);
                                     }
                                 }
 
                                 @Override
                                 public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                                     if (status != BluetoothGatt.GATT_SUCCESS) {
-                                        Log.e("BLE", "Can't discover services!!");
+                                        Log.e("BLE", this + " - Can't discover services!!");
                                         gatt.disconnect();
                                         return;
                                     }
                                     BluetoothGattService s = gatt.getService(SERVICE_UUID);
                                     if (s != null) {
-                                        Log.i("BLE", "Found service!!");
-                                        BluetoothGattCharacteristic heloChar = s.getCharacteristic(HELO_UUID);
-                                        if (heloChar == null) {
-                                            lastHelo.set(-1);
-                                        } else {
-                                            lastHelo.set(0L);
-                                        }
-                                        if (gatt.setCharacteristicNotification(heloChar, true)) {
-                                            BluetoothGattDescriptor descriptor = heloChar.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
-                                            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                                            gatt.writeDescriptor(descriptor);
-                                        }
-
-                                        setStatusText("MatrixPixelFun is ready.");
-                                        // gatt.requestMtu(256);
-                                        synchronized (bleConnected) {
-                                            gattRef.set(gatt);
-                                            serviceRef.set(s);
-                                            bleConnected.set(true);
-                                            bleConnectingSince.set(0L);
-                                        }
+                                        Log.i("BLE", this + " - Found service!!");
+                                        onFullyConnected(gatt, s);
                                     } else {
-                                        Log.i("BLE", "Service not found!!");
-                                        gatt.disconnect();
+                                        Log.i("BLE", this + " - Service not found!!");
+                                        gatt.discoverServices();
                                     }
                                 }
 
@@ -264,20 +251,74 @@ public class DeviceService {
 
                 @Override
                 public void onScanResult(int callbackType, ScanResult result) {
-                    Log.d("BLE", "onScanResult(" + result +")");
+                    Log.d("BLE", this + " - onScanResult(" + result +")");
                 }
 
                 @Override
                 public void onScanFailed(int errorCode) {
-                    Log.e("BLE", "onScanFailed: " + errorCode);
+                    Log.e("BLE", this + " - onScanFailed: " + errorCode);
                     super.onScanFailed(errorCode);
                 }
             };
             scanner.startScan(filters, scanSettings, scanCallback);
-            Log.d("BLE", "scan started");
+            Log.d("BLE", this + " - scan started");
             // scanner.flushPendingScanResults(scanCallback);
         }  else {
-            Log.e("BLE", "could not get scanner object");
+            Log.e("BLE", this + " - could not get scanner object");
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void onFullyConnected(BluetoothGatt gatt, BluetoothGattService s) {
+        BluetoothGattCharacteristic heloChar = s.getCharacteristic(HELO_UUID);
+        DeviceService.this.heloChar.set(heloChar);
+        if (heloChar == null) {
+            lastHelo.set(-1);
+        } else {
+            lastHelo.set(0L);
+        }
+        if (gatt.setCharacteristicNotification(heloChar, true)) {
+            BluetoothGattDescriptor descriptor = heloChar.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
+            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+            gatt.writeDescriptor(descriptor);
+        }
+
+        setStatusText("MatrixPixelFun is ready.");
+        // gatt.requestMtu(256);
+        synchronized (bleConnected) {
+            gattRef.set(gatt);
+            serviceRef.set(s);
+            bleConnected.set(true);
+            bleConnectingSince.set(0L);
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void onBleConnected(BluetoothGatt gatt) {
+        executor.schedule(()->{
+            setStatusText("Discovering device services ...");
+            gatt.discoverServices();
+        }, 100, TimeUnit.MILLISECONDS);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void onDisconnected(BluetoothGatt gatt) {
+        synchronized (bleConnected) {
+
+            BluetoothGattCharacteristic heloChar = DeviceService.this.heloChar.get();
+            if (heloChar != null && gatt.setCharacteristicNotification(heloChar, true)) {
+                BluetoothGattDescriptor descriptor = heloChar.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
+                descriptor.setValue(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE);
+                gatt.writeDescriptor(descriptor);
+                DeviceService.this.heloChar.set(null);
+            }
+            gatt.disconnect();
+            gatt.close();
+            setStatusText("MatrixPixelFun was disconnected");
+            bleConnected.set(false);
+            serviceRef.set(null);
+            gattRef.set(null);
+            bleConnectingSince.set(0L);
         }
     }
 
@@ -333,6 +374,24 @@ public class DeviceService {
 
     public void addStatusListener(Consumer<String> x) {
         statusListeners.add(x);
+        Log.d("StatusListener", "addStatusListener(" + x + "); total=" + statusListeners.size());
     }
 
+    public void removeStatusListener(Consumer<String> x) {
+        statusListeners.remove(x);
+        Log.d("StatusListener", "removeStatusListener(" + x + "); total=" + statusListeners.size());
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    public void disconnect() {
+        Optional.ofNullable(gattRef.get()).ifPresent(g->{
+            g.disconnect();
+        });
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    public void close() {
+        executor.shutdown();
+        disconnect();
+    }
 }

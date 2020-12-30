@@ -1,6 +1,7 @@
 package org.aalku.pixelmatrixfun;
 
 import android.Manifest;
+import android.bluetooth.BluetoothClass;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -47,6 +48,13 @@ public class MainActivity extends AppCompatActivity {
         } else {
             Toast.makeText(this, "Location permissions already granted", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    @Override
+    protected void onDestroy() {
+        deviceService.close();
+        super.onDestroy();
     }
 
     public void selectImage(View view) {
