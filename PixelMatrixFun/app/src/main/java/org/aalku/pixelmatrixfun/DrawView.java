@@ -67,10 +67,13 @@ public class DrawView extends View {
         int ry = Math.max(Math.min(imageHeight*y/height, imageHeight - 1), 0);
         Log.d("DRAW", String.format("[%s,%s] out of [%s,%s]", rx, ry, bitmap.getWidth(), bitmap.getHeight()));
         int color = Color.WHITE;
-        ok =  onDrawListener == null || onDrawListener.notifyPixel(rx, ry, color);
-        if (ok) {
-            bitmap.setPixel(rx, ry, color);
-            invalidate();
+        int prev = bitmap.getPixel(rx, ry);
+        if (prev != color) {
+            ok =  onDrawListener == null || onDrawListener.notifyPixel(rx, ry, color);
+            if (ok) {
+                bitmap.setPixel(rx, ry, color);
+                invalidate();
+            }
         }
     }
 
