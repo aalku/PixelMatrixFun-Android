@@ -21,12 +21,15 @@ import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -35,7 +38,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 @RequiresApi(api = Build.VERSION_CODES.N)
 public class DeviceService {
@@ -59,7 +61,8 @@ public class DeviceService {
     private final AtomicReference<BluetoothGatt> gattRef = new AtomicReference<>(null);
     private final AtomicReference<BluetoothGattService> serviceRef = new AtomicReference<>(null);
 
-    private final ConcurrentLinkedDeque<WriteBytesMessage> currentlySending = new ConcurrentLinkedDeque<>();
+    private final ConcurrentLinkedDeque<WriteBytesMessage> sendQueue = new ConcurrentLinkedDeque<>();
+    private final AtomicReference<WriteBytesMessage> currentlySending = new AtomicReference<>(null);
 
     private final AtomicLong lastHelo =  new AtomicLong(0L);
     private final AtomicReference<BluetoothGattCharacteristic> heloChar = new AtomicReference<>(null);
@@ -111,24 +114,45 @@ public class DeviceService {
 
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    public void sendBitmap(Bitmap bitmap) {
+    public CompletionStage<Boolean> sendBitmap(Bitmap bitmap) {
         BluetoothGattService s = serviceRef.get();
         BluetoothGatt gatt = gattRef.get();
         if (checkConnected(s, gatt)) {
             BluetoothGattCharacteristic c = s.getCharacteristic(SEND_BITMAP_UUID);
             Log.i("BLE", "Sending image...");
             if (bitmap != null) {
-                sendBitmap(gatt, c, bitmap);
+                return internalSendBitmap(gatt, c, bitmap);
             } else {
                 bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888);
                 // Black?
-                sendBitmap(gatt, c, bitmap);
+                return internalSendBitmap(gatt, c, bitmap);
             }
         }
+        CompletableFuture<Boolean> errorCf = new CompletableFuture<>();
+        errorCf.completeExceptionally(new IOException("Not connected"));
+        return errorCf;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
+    public CompletionStage<Boolean> sendPixel(int x, int y, int color) {
+        setStatusText("Sending pixel...");
+        BluetoothGattService s = serviceRef.get();
+        BluetoothGatt gatt = gattRef.get();
+        if (checkConnected(s, gatt)) {
+            BluetoothGattCharacteristic c = s.getCharacteristic(SEND_PIXEL_UUID);
+            Log.i("BLE", "Sending pixel...");
+            byte[] pixelsBytes = new byte[5];
+            pixelsBytes[0] = (byte) (x & 0xFF);
+            pixelsBytes[1] = (byte) (y & 0xFF);
+            pixelsBytes[2] = (byte) ((color >> 16) & 0xff);
+            pixelsBytes[3] = (byte) ((color >> 8 ) & 0xff);
+            pixelsBytes[4] = (byte) ((color      ) & 0xff);
+            return writeBytesCharacteristic(gatt, pixelsBytes, c);
+        }
+        CompletableFuture<Boolean> errorCf = new CompletableFuture<>();
+        errorCf.completeExceptionally(new IOException("Not connected"));
+        return errorCf;
+    }
+
     private boolean checkConnected(BluetoothGattService s, BluetoothGatt gatt) {
         return bleConnected.get() && s != null && gatt != null;
     }
@@ -239,13 +263,7 @@ public class DeviceService {
 
                                 @Override
                                 public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic c, int status) {
-                                    if (status == BluetoothGatt.GATT_SUCCESS) {
-                                        Log.d("BLE", "onCharacteristicWrite: OK");
-                                        internalWrite(gatt); // Continue
-                                    } else {
-                                        Log.e("BLE", "Disconnecting due to write error: " + status);
-                                        gatt.disconnect();
-                                    }
+                                    DeviceService.this.onCharacteristicWrite(gatt, c, status);
                                 }
                             };
                             r.getDevice().connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
@@ -327,18 +345,16 @@ public class DeviceService {
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    private void sendBitmap(BluetoothGatt gatt, BluetoothGattCharacteristic c, Bitmap bitmap) {
+    private CompletionStage<Boolean> internalSendBitmap(BluetoothGatt gatt, BluetoothGattCharacteristic c, Bitmap bitmap) {
         byte[] pixelsBytes = getBitmapBytes(bitmap);
         setStatusText("Sending bitmap...");
-        writeBytesCharacteristic(gatt, pixelsBytes, c);
+        return writeBytesCharacteristic(gatt, pixelsBytes, c);
     }
 
     public String getStatusText() {
         return statusText.get();
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
     private void setStatusText(String s) {
         this.statusText.set(s);
         for (Consumer<String> c: statusListeners) {
@@ -363,50 +379,110 @@ public class DeviceService {
         });
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
     public void close() {
         executor.shutdown();
         disconnect();
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    private void writeBytesCharacteristic(BluetoothGatt gatt, byte[] bytes, BluetoothGattCharacteristic c) {
-        this.currentlySending.addAll(WriteBytesMessage.asMessages(c, bytes));
+    private synchronized CompletionStage<Boolean> writeBytesCharacteristic(BluetoothGatt gatt, byte[] bytes, BluetoothGattCharacteristic c) {
+        WriteBytesMessage msg = new WriteBytesMessage(c, bytes);
+        sendQueue.add(msg);
         internalWrite(gatt);
+        return msg.getFuture();
     }
 
-    private void internalWrite(BluetoothGatt gatt) {
-        WriteBytesMessage msg = this.currentlySending.poll();
-        if (msg != null) {
-            msg.c.setValue(msg.bytes);
-            msg.c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-            boolean ok = gatt.writeCharacteristic(msg.c);
-            Log.i("BLE", "Sent " + msg.bytes.length + " " + (ok?"ok":"fail!"));
-            setStatusText("Sending ..." + this.currentlySending.stream().map(z->".").collect(Collectors.joining()));
+    private synchronized void internalWrite(BluetoothGatt gatt) {
+        WriteBytesMessage msg = currentlySending.get();
+        boolean isContinuation = (msg != null);
+        if (msg == null) {
+            /* Let's see if there is something else to send */
+            msg = this.sendQueue.poll();
+            if (msg == null) {
+                Log.i("BLE", "Nothing to send.");
+                return;
+            }
+        }
+        currentlySending.set(msg);
+        byte[] bytes = msg.next();
+        BluetoothGattCharacteristic c = msg.getCharacteristic();
+        c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+        c.setValue(bytes);
+        boolean ok = gatt.writeCharacteristic(msg.c);
+        if (ok) {
+            setStatusText(String.format("Sent %d/%d", msg.getOffset(), msg.getLength()));
+        } else {
+            setStatusText("Error sending");
+        }
+    }
+
+    private synchronized void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic c, int status) {
+        WriteBytesMessage sending = currentlySending.get();
+        if (sending == null) {
+            Log.e("BLE", "onCharacteristicWrite without currentlySending", new IllegalStateException());
+            return;
+        }
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            Log.d("BLE", "onCharacteristicWrite: OK");
+            if (sending.isDone()) {
+                currentlySending.set(null);
+                sending.complete(true);
+                internalWrite(gatt);
+            } else {
+                internalWrite(gatt);
+            }
+        } else {
+            Log.e("BLE", "Disconnecting due to write error: " + status);
+            currentlySending.set(null);
+            sending.completeExceptionally(new IOException("Write error: " + status));
+            gatt.disconnect();
         }
     }
 
     private static class WriteBytesMessage {
         private final BluetoothGattCharacteristic c;
         private final byte[] bytes;
+        private int offset = 0;
+        private final CompletableFuture<Boolean> cf = new CompletableFuture<>();
+
+        public int getOffset() {
+            return offset;
+        }
+
+        public CompletionStage<Boolean> getFuture() {
+            return cf;
+        }
 
         private WriteBytesMessage(BluetoothGattCharacteristic c, byte[] bytes) {
             this.c = c;
             this.bytes = bytes;
         }
 
-        public static List<WriteBytesMessage> asMessages(BluetoothGattCharacteristic c, byte[] bytes) {
-            int offset = 0;
-            List<WriteBytesMessage> res = new ArrayList<>();
-            while (offset < bytes.length) {
-                int len = Math.min(bytes.length - offset, TX_SIZE);
-                byte[] buff = new byte[len];
-                System.arraycopy(bytes, offset, buff, 0, len);
-                res.add(new WriteBytesMessage(c, buff));
-                offset += len;
-            }
+        public byte[] next() {
+            int len = Math.min(bytes.length-offset, TX_SIZE);
+            byte[] res = new byte[len];
+            System.arraycopy(bytes, offset, res, 0, len);
+            offset+=len;
             return res;
         }
 
+        public boolean isDone() {
+            return offset == bytes.length;
+        }
+
+        public BluetoothGattCharacteristic getCharacteristic() {
+            return c;
+        }
+
+        public void complete(boolean value) {
+            cf.complete(value);
+        }
+
+        public void completeExceptionally(Throwable ex) {
+            cf.completeExceptionally(ex);
+        }
+
+        public int getLength() {
+            return bytes.length;
+        }
     }
 }

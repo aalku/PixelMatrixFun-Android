@@ -1,19 +1,27 @@
 package org.aalku.pixelmatrixfun;
 
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.View;
 import android.widget.TextView;
 
+import org.aalku.pixelmatrixfun.DrawView.DrawListener;
+
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-public class DrawActivity extends AppCompatActivity {
+@RequiresApi(api = Build.VERSION_CODES.N)
+public class DrawActivity extends AppCompatActivity implements DrawListener {
 
     private Consumer<String> statusListener = s->setStatusText(s);
+    private DrawView drawView;
     private TextView statusText;
     private DeviceService deviceService;
+    private final AtomicBoolean ready = new AtomicBoolean(false);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -21,8 +29,19 @@ public class DrawActivity extends AppCompatActivity {
         deviceService = DeviceService.instance;
         setContentView(R.layout.activity_draw);
         statusText = this.findViewById(R.id.statusText);
+        drawView = this.findViewById(R.id.drawView);
         deviceService.addStatusListener(statusListener);
         setStatusText(deviceService.getStatusText());
+        drawView.setOnDrawListener(this);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        CompletionStage<Boolean> cf = deviceService.sendBitmap(drawView.getBitmap());
+        cf.whenComplete((r,e)->{
+            ready.set(true);
+        });
     }
 
     @Override
@@ -36,4 +55,19 @@ public class DrawActivity extends AppCompatActivity {
         this.runOnUiThread(()->statusText.setText(msg));
     }
 
+    @Override
+    public boolean notifyPixel(int x, int y, int color) {
+        if (ready.getAndSet(false)) {
+            deviceService.sendPixel(x, y, color).whenComplete((r,e)->{
+                ready.set(true);
+            });
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean isDrawAllowed() {
+        return ready.get();
+    }
 }

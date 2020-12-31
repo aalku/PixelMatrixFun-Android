@@ -9,7 +9,7 @@
     tools:context=".DrawActivity">
 
     <org.aalku.pixelmatrixfun.DrawView
-        android:id="@+id/paintView"
+        android:id="@+id/drawView"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_marginStart="20dp"

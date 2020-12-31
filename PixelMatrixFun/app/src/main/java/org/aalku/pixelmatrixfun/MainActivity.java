@@ -1,7 +1,6 @@
 package org.aalku.pixelmatrixfun;
 
 import android.Manifest;
-import android.bluetooth.BluetoothClass;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -23,6 +22,7 @@ import androidx.core.content.ContextCompat;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
 
+@RequiresApi(api = Build.VERSION_CODES.N)
 public class MainActivity extends AppCompatActivity {
 
     private TextView statusText;

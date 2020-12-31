@@ -23,6 +23,7 @@ public class DrawView extends View {
     private int imageHeight = 16;
     private Rect paintRect;
     private final Paint paint = new Paint(0);
+    private DrawListener onDrawListener = null;
 
     public DrawView(Context context) {
         this(context, null);
@@ -56,11 +57,21 @@ public class DrawView extends View {
     }
 
     private void drawPixel(int x, int y, int width, int height) {
+
+        boolean ok =  onDrawListener == null || onDrawListener.isDrawAllowed();
+        if (!ok) {
+            return;
+        }
+
         int rx = Math.max(Math.min(imageWidth*x/width,imageHeight - 1), 0);
         int ry = Math.max(Math.min(imageHeight*y/height, imageHeight - 1), 0);
         Log.d("DRAW", String.format("[%s,%s] out of [%s,%s]", rx, ry, bitmap.getWidth(), bitmap.getHeight()));
-        bitmap.setPixel(rx, ry, Color.WHITE);
-        invalidate();
+        int color = Color.WHITE;
+        ok =  onDrawListener == null || onDrawListener.notifyPixel(rx, ry, color);
+        if (ok) {
+            bitmap.setPixel(rx, ry, color);
+            invalidate();
+        }
     }
 
     @Override
@@ -102,5 +113,19 @@ public class DrawView extends View {
         }
 
         super.onLayout(changed, left, top, right, bottom);
+    }
+
+    public Bitmap getBitmap() {
+        return Bitmap.createBitmap(bitmap);
+    }
+
+    public void setOnDrawListener(DrawListener drawListener) {
+        this.onDrawListener = drawListener;
+    }
+
+    interface DrawListener {
+        boolean notifyPixel(int x, int y, int color);
+
+        boolean isDrawAllowed();
     }
 }
