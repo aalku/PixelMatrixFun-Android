@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Build;
 import android.util.AttributeSet;
@@ -21,6 +22,7 @@ public class DrawView extends View {
     private int imageWidth = 16;
     private int imageHeight = 16;
     private Rect paintRect;
+    private final Paint paint = new Paint(0);
 
     public DrawView(Context context) {
         this(context, null);
@@ -29,13 +31,28 @@ public class DrawView extends View {
     public DrawView(Context context, AttributeSet attrs) {
         super(context, attrs);
         bitmap = Bitmap.createBitmap(imageWidth, imageHeight, Bitmap.Config.ARGB_8888);
+        bitmap.eraseColor(Color.BLACK);
+        paint.setAntiAlias(false);
+        paint.setDither(false);
+        paint.setFilterBitmap(false);
+        if (isInEditMode()) {
+            for (int x = 0; x < imageWidth; x++) {
+                if (x > 0) {
+                    bitmap.setPixel(x, x*imageHeight/imageWidth-1, Color.RED);
+                }
+                bitmap.setPixel(x, x*imageHeight/imageWidth, Color.GREEN);
+                if (x < imageWidth - 1) {
+                    bitmap.setPixel(x, x*imageHeight/imageWidth+1, Color.BLUE);
+                }
+            }
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        canvas.drawBitmap(bitmap, null, this.paintRect, null);
+        canvas.drawBitmap(bitmap, null, this.paintRect, paint);
     }
 
     private void drawPixel(int x, int y, int width, int height) {
