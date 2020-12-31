@@ -17,20 +17,17 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Build;
-import android.os.Parcelable;
 import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -38,7 +35,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
+@RequiresApi(api = Build.VERSION_CODES.N)
 public class DeviceService {
 
     public static DeviceService instance;
@@ -60,7 +59,7 @@ public class DeviceService {
     private final AtomicReference<BluetoothGatt> gattRef = new AtomicReference<>(null);
     private final AtomicReference<BluetoothGattService> serviceRef = new AtomicReference<>(null);
 
-    private final AtomicReference<ByteArrayInputStream> currentlySending = new AtomicReference<>(null);
+    private final ConcurrentLinkedDeque<WriteBytesMessage> currentlySending = new ConcurrentLinkedDeque<>();
 
     private final AtomicLong lastHelo =  new AtomicLong(0L);
     private final AtomicReference<BluetoothGattCharacteristic> heloChar = new AtomicReference<>(null);
@@ -88,8 +87,10 @@ public class DeviceService {
                     setStatusText("Connection might be lost!");
                     /* Disconnecting seems not useful. You can't connect fast after that */
                     // Optional.ofNullable(gattRef.get()).ifPresent(g->g.disconnect());
-                } else {
+                } else if (lastHelo > 0) {
                     setStatusText("PixelMatrixFun is connected and ready.");
+                } else {
+                    setStatusText("Connected?");
                 }
             } else if (bleConnectingSince.get() > 0) {
                 long since = bleConnectingSince.get();
@@ -181,6 +182,10 @@ public class DeviceService {
                 @RequiresApi(api = Build.VERSION_CODES.N)
                 @Override
                 public void onBatchScanResults(List<ScanResult> results) {
+                    if (bleConnected.get()) {
+                        // Ignored because already connected
+                        return;
+                    }
                     Log.d("BLE", this + " -   onBatchScanResults(results.size=" + results.size() + ")");
                     scanner.stopScan(this); // Enough
                     if (results.size() == 0) {
@@ -236,7 +241,7 @@ public class DeviceService {
                                 public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic c, int status) {
                                     if (status == BluetoothGatt.GATT_SUCCESS) {
                                         Log.d("BLE", "onCharacteristicWrite: OK");
-                                        internalWrite(gatt, null, c); // Continue
+                                        internalWrite(gatt); // Continue
                                     } else {
                                         Log.e("BLE", "Disconnecting due to write error: " + status);
                                         gatt.disconnect();
@@ -323,41 +328,10 @@ public class DeviceService {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
-    private void internalWrite(BluetoothGatt gatt, byte[] bytes, BluetoothGattCharacteristic c) {
-        if (bytes != null) {
-            // New
-            this.currentlySending.set(new ByteArrayInputStream(bytes));
-        }
-        ByteArrayInputStream bais = this.currentlySending.get();
-        if (bais == null) {
-            Log.e("BLE", "bais is null!");
-        }
-        byte[] buffer = new byte[Math.min(bais.available(), TX_SIZE)];
-        if (buffer.length > 0) {
-            try {
-                if (bais.read(buffer) != buffer.length) {
-                    Log.e("BLE", "bais.read error!");
-                    throw new IOException("bais.read error!");
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            c.setValue(buffer);
-            c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-            boolean ok = gatt.writeCharacteristic(c);
-            Log.i("BLE", "Sent " + buffer.length + " " + (ok?"ok":"fail!"));
-        } else {
-            Log.i("BLE", "Sent!!");
-            setStatusText("Sent!! PixelMatrixFun is ready.");
-            this.currentlySending.set(null);
-        }
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.N)
     private void sendBitmap(BluetoothGatt gatt, BluetoothGattCharacteristic c, Bitmap bitmap) {
         byte[] pixelsBytes = getBitmapBytes(bitmap);
         setStatusText("Sending bitmap...");
-        internalWrite(gatt, pixelsBytes, c);
+        writeBytesCharacteristic(gatt, pixelsBytes, c);
     }
 
     public String getStatusText() {
@@ -393,5 +367,46 @@ public class DeviceService {
     public void close() {
         executor.shutdown();
         disconnect();
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void writeBytesCharacteristic(BluetoothGatt gatt, byte[] bytes, BluetoothGattCharacteristic c) {
+        this.currentlySending.addAll(WriteBytesMessage.asMessages(c, bytes));
+        internalWrite(gatt);
+    }
+
+    private void internalWrite(BluetoothGatt gatt) {
+        WriteBytesMessage msg = this.currentlySending.poll();
+        if (msg != null) {
+            msg.c.setValue(msg.bytes);
+            msg.c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            boolean ok = gatt.writeCharacteristic(msg.c);
+            Log.i("BLE", "Sent " + msg.bytes.length + " " + (ok?"ok":"fail!"));
+            setStatusText("Sending ..." + this.currentlySending.stream().map(z->".").collect(Collectors.joining()));
+        }
+    }
+
+    private static class WriteBytesMessage {
+        private final BluetoothGattCharacteristic c;
+        private final byte[] bytes;
+
+        private WriteBytesMessage(BluetoothGattCharacteristic c, byte[] bytes) {
+            this.c = c;
+            this.bytes = bytes;
+        }
+
+        public static List<WriteBytesMessage> asMessages(BluetoothGattCharacteristic c, byte[] bytes) {
+            int offset = 0;
+            List<WriteBytesMessage> res = new ArrayList<>();
+            while (offset < bytes.length) {
+                int len = Math.min(bytes.length - offset, TX_SIZE);
+                byte[] buff = new byte[len];
+                System.arraycopy(bytes, offset, buff, 0, len);
+                res.add(new WriteBytesMessage(c, buff));
+                offset += len;
+            }
+            return res;
+        }
+
     }
 }
