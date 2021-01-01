@@ -12,17 +12,24 @@ import android.widget.TextView;
 import org.aalku.pixelmatrixfun.DrawView.DrawListener;
 
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 @RequiresApi(api = Build.VERSION_CODES.N)
 public class DrawActivity extends AppCompatActivity implements DrawListener {
 
+    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+
     private Consumer<String> statusListener = s->setStatusText(s);
     private DrawView drawView;
     private TextView statusText;
     private DeviceService deviceService;
     private final AtomicBoolean ready = new AtomicBoolean(false);
+    private ScheduledFuture<?> initTask;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,15 +47,25 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     protected void onResume() {
         super.onResume();
         // CompletionStage<Boolean> cf = deviceService.sendBitmap(drawView.getBitmap());
-        CompletionStage<Boolean> cf = deviceService.clearBitmap(Color.BLACK);
-        cf.whenComplete((r,e)->{
-            ready.set(true);
-        });
+        this.initTask = executor.scheduleWithFixedDelay(()->{
+            if (!ready.get()) {
+                CompletionStage<Boolean> cf = deviceService.clearBitmap(Color.BLACK);
+                cf.whenComplete((r, e) -> {
+                    ready.set(true);
+                });
+            } else {
+                if (initTask != null) {
+                    initTask.cancel(false);
+                    initTask = null;
+                }
+            }
+        }, 0, 3, TimeUnit.SECONDS);
     }
 
     @Override
     protected void onDestroy() {
         DeviceService.instance.removeStatusListener(statusListener);
+        executor.shutdown();
         super.onDestroy();
     }
 
