@@ -35,6 +35,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -46,11 +47,11 @@ public class DeviceService {
 
     public static final int TX_SIZE = 256; // Max 512
 
-    private static final UUID SERVICE_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab1");
-    private static final UUID SEND_BITMAP_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab2");
-    private static final UUID HELO_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab3");
-    private static final UUID SEND_PIXEL_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab4");
-    private static final UUID CLEAR_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab5");
+    private static final UUID SERVICE_UUID = UUID.fromString("5e92c674-3f45-420c-bb53-af2bcaff68b2");
+    private static final UUID SEND_BITMAP_UUID = UUID.fromString("2de8d042-9a37-45f0-8233-5160faea472d");
+    private static final UUID HELO_UUID = UUID.fromString("3ca58a89-0754-44d3-83e5-371aac29ca36");
+    private static final UUID SEND_PIXEL_UUID = UUID.fromString("5038a8b8-5e8e-4f1f-97dd-8cf76c8e90e1");
+    private static final UUID CLEAR_UUID = UUID.fromString("2ae4ad40-f1e2-4f4d-893c-f0109c024381");
     private static final UUID CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     private static final String REFERENCE_DEVICE_NAME = "PixelMatrixFun";
@@ -74,6 +75,7 @@ public class DeviceService {
     private AtomicReference<String> statusText = new AtomicReference<>("");
     private Collection<Consumer<String>> statusListeners = new ArrayList<>();
     private Context context;
+    private AtomicInteger clearSeq = new AtomicInteger();
 
     @RequiresApi(api = Build.VERSION_CODES.N)
     public DeviceService(Context baseContext) {
@@ -185,10 +187,11 @@ public class DeviceService {
         if (checkConnected(s, gatt)) {
             BluetoothGattCharacteristic c = s.getCharacteristic(CLEAR_UUID);
             Log.i("BLE", "Clearing bitmap...");
-            byte[] pixelsBytes = new byte[5];
-            pixelsBytes[2] = (byte) ((color >> 16) & 0xff);
-            pixelsBytes[3] = (byte) ((color >> 8 ) & 0xff);
-            pixelsBytes[4] = (byte) ((color      ) & 0xff);
+            byte[] pixelsBytes = new byte[4];
+            pixelsBytes[0] = (byte) ((color >> 16) & 0xff);
+            pixelsBytes[1] = (byte) ((color >> 8 ) & 0xff);
+            pixelsBytes[2] = (byte) ((color      ) & 0xff);
+            pixelsBytes[3 ] = (byte) (clearSeq.incrementAndGet() & 0xff);
             return writeBytesCharacteristic(gatt, pixelsBytes, c);
         }
         CompletableFuture<Boolean> errorCf = new CompletableFuture<>();
@@ -453,12 +456,12 @@ public class DeviceService {
             }
             currentlySending.set(msg);
             byte[] bytes = msg.next();
-            BluetoothGattCharacteristic c = msg.getCharacteristic();
+            BluetoothGattCharacteristic c = gatt.getService(SERVICE_UUID).getCharacteristic(msg.getCharacteristic().getUuid());
             c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
             c.setValue(bytes);
-            boolean ok = gatt.writeCharacteristic(msg.c);
+            boolean ok = gatt.writeCharacteristic(c);
             if (ok) {
-                setStatusText(String.format("Sent %d/%d", msg.getOffset(), msg.getLength()));
+                setStatusText(String.format("Sent %d/%d to %s", msg.getOffset(), msg.getLength(), c.getUuid().toString()));
             } else {
                 sendLock.set(false);
                 setStatusText("Error sending");

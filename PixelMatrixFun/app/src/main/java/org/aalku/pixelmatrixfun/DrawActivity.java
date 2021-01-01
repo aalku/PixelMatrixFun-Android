@@ -49,6 +49,7 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
         // CompletionStage<Boolean> cf = deviceService.sendBitmap(drawView.getBitmap());
         this.initTask = executor.scheduleWithFixedDelay(()->{
             if (!ready.get()) {
+                drawView.getBitmap().eraseColor(Color.BLACK);
                 CompletionStage<Boolean> cf = deviceService.clearBitmap(Color.BLACK);
                 cf.whenComplete((r, e) -> {
                     ready.set(true);
