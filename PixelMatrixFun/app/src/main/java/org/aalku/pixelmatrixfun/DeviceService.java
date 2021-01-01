@@ -64,6 +64,9 @@ public class DeviceService {
 
     private final ConcurrentLinkedDeque<WriteBytesMessage> sendQueue = new ConcurrentLinkedDeque<>();
     private final AtomicReference<WriteBytesMessage> currentlySending = new AtomicReference<>(null);
+    private final AtomicBoolean sendLock = new AtomicBoolean(true);
+
+    private final ArrayList<Path> pendingPaths = new ArrayList<>();
 
     private final AtomicLong lastHelo =  new AtomicLong(0L);
     private final AtomicReference<BluetoothGattCharacteristic> heloChar = new AtomicReference<>(null);
@@ -134,24 +137,45 @@ public class DeviceService {
         return errorCf;
     }
 
-    public CompletionStage<Boolean> sendPixel(int x, int y, int color) {
-        setStatusText("Sending pixel...");
-        BluetoothGattService s = serviceRef.get();
-        BluetoothGatt gatt = gattRef.get();
-        if (checkConnected(s, gatt)) {
-            BluetoothGattCharacteristic c = s.getCharacteristic(SEND_PIXEL_UUID);
-            Log.i("BLE", "Sending pixel...");
-            byte[] pixelsBytes = new byte[5];
-            pixelsBytes[0] = (byte) (x & 0xFF);
-            pixelsBytes[1] = (byte) (y & 0xFF);
-            pixelsBytes[2] = (byte) ((color >> 16) & 0xff);
-            pixelsBytes[3] = (byte) ((color >> 8 ) & 0xff);
-            pixelsBytes[4] = (byte) ((color      ) & 0xff);
-            return writeBytesCharacteristic(gatt, pixelsBytes, c);
+    public void sendPixel(int x, int y, int color) {
+
+        synchronized (pendingPaths) {
+            Path p = null;
+            for (Path pp: pendingPaths) {
+                if (pp.merge(x, y, color)) {
+                    p = pp;
+                    break;
+                }
+            }
+            if (p == null) {
+                pendingPaths.add(p = new Path(x, y, color));
+            }
+            if (p.isFull() || this.sendQueue.isEmpty()) {
+                pendingPaths.remove(p);
+                sendPath(p);
+            }
         }
-        CompletableFuture<Boolean> errorCf = new CompletableFuture<>();
-        errorCf.completeExceptionally(new IOException("Not connected"));
-        return errorCf;
+    }
+
+    private void sendPath(Path p) {
+        if (p == null) {
+            synchronized (pendingPaths) {
+                if (pendingPaths.isEmpty()) {
+                    return;
+                } else {
+                    sendPath(pendingPaths.remove(0));
+                }
+            }
+        } else {
+            setStatusText("Sending pixels...");
+            BluetoothGattService s = serviceRef.get();
+            BluetoothGatt gatt = gattRef.get();
+            if (checkConnected(s, gatt)) {
+                BluetoothGattCharacteristic c = s.getCharacteristic(SEND_PIXEL_UUID);
+                Log.i("BLE", "Sending pixels...");
+                writeBytesCharacteristic(gatt, p.getBytes(), c);
+            }
+        }
     }
 
     public CompletionStage<Boolean> clearBitmap(int color) {
@@ -332,6 +356,7 @@ public class DeviceService {
             serviceRef.set(s);
             bleConnected.set(true);
             bleConnectingSince.set(0L);
+            sendLock.set(false);
         }
     }
 
@@ -346,7 +371,7 @@ public class DeviceService {
     @RequiresApi(api = Build.VERSION_CODES.N)
     private void onDisconnected(BluetoothGatt gatt) {
         synchronized (bleConnected) {
-
+            sendLock.set(true);
             BluetoothGattCharacteristic heloChar = DeviceService.this.heloChar.get();
             if (heloChar != null && gatt.setCharacteristicNotification(heloChar, true)) {
                 BluetoothGattDescriptor descriptor = heloChar.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
@@ -411,30 +436,39 @@ public class DeviceService {
     }
 
     private synchronized void internalWrite(BluetoothGatt gatt) {
-        WriteBytesMessage msg = currentlySending.get();
-        boolean isContinuation = (msg != null);
-        if (msg == null) {
-            /* Let's see if there is something else to send */
-            msg = this.sendQueue.poll();
+        if (!sendLock.getAndSet(true)) {
+            WriteBytesMessage msg = currentlySending.get();
+            boolean isContinuation = (msg != null);
             if (msg == null) {
-                Log.i("BLE", "Nothing to send.");
-                return;
+                /* Let's see if there is something else to send */
+                if (this.sendQueue.isEmpty()) {
+                    sendPath(null);
+                }
+                msg = this.sendQueue.poll();
+                if (msg == null) {
+                    Log.i("BLE", "Nothing to send.");
+                    sendLock.set(false);
+                    return;
+                }
             }
-        }
-        currentlySending.set(msg);
-        byte[] bytes = msg.next();
-        BluetoothGattCharacteristic c = msg.getCharacteristic();
-        c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-        c.setValue(bytes);
-        boolean ok = gatt.writeCharacteristic(msg.c);
-        if (ok) {
-            setStatusText(String.format("Sent %d/%d", msg.getOffset(), msg.getLength()));
-        } else {
-            setStatusText("Error sending");
+            currentlySending.set(msg);
+            byte[] bytes = msg.next();
+            BluetoothGattCharacteristic c = msg.getCharacteristic();
+            c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            c.setValue(bytes);
+            boolean ok = gatt.writeCharacteristic(msg.c);
+            if (ok) {
+                setStatusText(String.format("Sent %d/%d", msg.getOffset(), msg.getLength()));
+            } else {
+                sendLock.set(false);
+                setStatusText("Error sending");
+                executor.schedule(() -> internalWrite(gatt), 100, TimeUnit.MILLISECONDS);
+            }
         }
     }
 
     private synchronized void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic c, int status) {
+        sendLock.set(false);
         WriteBytesMessage sending = currentlySending.get();
         if (sending == null) {
             Log.e("BLE", "onCharacteristicWrite without currentlySending", new IllegalStateException());
@@ -504,4 +538,63 @@ public class DeviceService {
             return bytes.length;
         }
     }
+
+    private static class Path {
+        final static int PW = 5;
+        final static int MAX = 16;
+        int color;
+        int lx;
+        int ly;
+        int count = 0;
+        byte[] bytes = new byte[MAX*PW];
+        Path(int x, int y, int color) {
+            this.lx = x;
+            this.ly = y;
+            this.color = color;
+            add(x,y);
+        }
+        boolean merge(int x, int y, int color) {
+            if (color != this.color) {
+                return false;
+            }
+            if (Math.abs(x-lx)>1) {
+                return false;
+            }
+            if (Math.abs(y-ly)>1) {
+                return false;
+            }
+            return add(x,y);
+        }
+        private boolean add(int x, int y) {
+            if (count < MAX) {
+                int pos = count * PW;
+                bytes[pos+0] = (byte)(x & 0xFF);
+                bytes[pos+1] = (byte)(y & 0xFF);
+                bytes[pos+2] = (byte) ((color >> 16) & 0xff);
+                bytes[pos+3] = (byte) ((color >> 8 ) & 0xff);
+                bytes[pos+4] = (byte) ((color      ) & 0xff);
+                lx = x;
+                ly = y;
+                count++;
+                return true;
+            } else {
+                return false;
+            }
+        }
+        public byte[] getBytes() {
+            byte[] res;
+            if (count == MAX) {
+                res = bytes;
+            } else {
+                res = new byte[count*PW];
+                System.arraycopy(bytes, 0, res, 0, count*PW);
+            }
+            return res;
+        }
+
+        public boolean isFull() {
+            return count == MAX;
+        }
+    }
+
 }
