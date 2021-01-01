@@ -3,6 +3,7 @@ package org.aalku.pixelmatrixfun;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -38,7 +39,8 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     @Override
     protected void onResume() {
         super.onResume();
-        CompletionStage<Boolean> cf = deviceService.sendBitmap(drawView.getBitmap());
+        // CompletionStage<Boolean> cf = deviceService.sendBitmap(drawView.getBitmap());
+        CompletionStage<Boolean> cf = deviceService.clearBitmap(Color.BLACK);
         cf.whenComplete((r,e)->{
             ready.set(true);
         });
@@ -57,10 +59,8 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
 
     @Override
     public boolean notifyPixel(int x, int y, int color) {
-        if (ready.getAndSet(false)) {
-            deviceService.sendPixel(x, y, color).whenComplete((r,e)->{
-                ready.set(true);
-            });
+        if (isDrawAllowed()) {
+            deviceService.sendPixel(x, y, color);
             return true;
         }
         return false;

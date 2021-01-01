@@ -50,6 +50,7 @@ public class DeviceService {
     private static final UUID SEND_BITMAP_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab2");
     private static final UUID HELO_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab3");
     private static final UUID SEND_PIXEL_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab4");
+    private static final UUID CLEAR_UUID = UUID.fromString("6ff4913c-ea8a-4e5b-afdc-9f0f0e488ab5");
     private static final UUID CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     private static final String REFERENCE_DEVICE_NAME = "PixelMatrixFun";
@@ -143,6 +144,24 @@ public class DeviceService {
             byte[] pixelsBytes = new byte[5];
             pixelsBytes[0] = (byte) (x & 0xFF);
             pixelsBytes[1] = (byte) (y & 0xFF);
+            pixelsBytes[2] = (byte) ((color >> 16) & 0xff);
+            pixelsBytes[3] = (byte) ((color >> 8 ) & 0xff);
+            pixelsBytes[4] = (byte) ((color      ) & 0xff);
+            return writeBytesCharacteristic(gatt, pixelsBytes, c);
+        }
+        CompletableFuture<Boolean> errorCf = new CompletableFuture<>();
+        errorCf.completeExceptionally(new IOException("Not connected"));
+        return errorCf;
+    }
+
+    public CompletionStage<Boolean> clearBitmap(int color) {
+        setStatusText("Clearing bitmap...");
+        BluetoothGattService s = serviceRef.get();
+        BluetoothGatt gatt = gattRef.get();
+        if (checkConnected(s, gatt)) {
+            BluetoothGattCharacteristic c = s.getCharacteristic(CLEAR_UUID);
+            Log.i("BLE", "Clearing bitmap...");
+            byte[] pixelsBytes = new byte[5];
             pixelsBytes[2] = (byte) ((color >> 16) & 0xff);
             pixelsBytes[3] = (byte) ((color >> 8 ) & 0xff);
             pixelsBytes[4] = (byte) ((color      ) & 0xff);
