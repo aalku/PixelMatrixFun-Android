@@ -87,11 +87,14 @@ public class DrawView extends View {
             switch(event.getAction()) {
                 case MotionEvent.ACTION_DOWN :
                     drawPixel((int)x, (int)y, this.getWidth(), this.getHeight());
+                    break;
                 case MotionEvent.ACTION_MOVE :
                     drawPixel((int)x, (int)y, this.getWidth(), this.getHeight());
+                    break;
                 case MotionEvent.ACTION_UP :
                     //touchUp();
                     invalidate();
+                    break;
             }
         }
         return true;
