@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -75,7 +76,8 @@ public class DeviceService {
     private AtomicReference<String> statusText = new AtomicReference<>("");
     private Collection<Consumer<String>> statusListeners = new ArrayList<>();
     private Context context;
-    private AtomicInteger clearSeq = new AtomicInteger();
+
+    private ConcurrentHashMap<UUID, AtomicInteger> seq = new ConcurrentHashMap<>();
 
     @RequiresApi(api = Build.VERSION_CODES.N)
     public DeviceService(Context baseContext) {
@@ -191,12 +193,16 @@ public class DeviceService {
             pixelsBytes[0] = (byte) ((color >> 16) & 0xff);
             pixelsBytes[1] = (byte) ((color >> 8 ) & 0xff);
             pixelsBytes[2] = (byte) ((color      ) & 0xff);
-            pixelsBytes[3 ] = (byte) (clearSeq.incrementAndGet() & 0xff);
+            pixelsBytes[3 ] = (byte) (getSeq(CLEAR_UUID) & 0xff);
             return writeBytesCharacteristic(gatt, pixelsBytes, c);
         }
         CompletableFuture<Boolean> errorCf = new CompletableFuture<>();
         errorCf.completeExceptionally(new IOException("Not connected"));
         return errorCf;
+    }
+
+    private int getSeq(UUID key) {
+        return seq.computeIfAbsent(key, k->new AtomicInteger(0)).incrementAndGet();
     }
 
     private boolean checkConnected(BluetoothGattService s, BluetoothGatt gatt) {
@@ -455,8 +461,14 @@ public class DeviceService {
                 }
             }
             currentlySending.set(msg);
+            int offset = msg.getOffset();
+            int totalLen = msg.getLength();
             byte[] bytes = msg.next();
-            BluetoothGattCharacteristic c = gatt.getService(SERVICE_UUID).getCharacteristic(msg.getCharacteristic().getUuid());
+            UUID cUUID = msg.getCharacteristic().getUuid();
+            if (cUUID.equals(SEND_BITMAP_UUID)) {
+                bytes = makePage(getSeq(cUUID), totalLen, offset, bytes);
+            }
+            BluetoothGattCharacteristic c = gatt.getService(SERVICE_UUID).getCharacteristic(cUUID);
             c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
             c.setValue(bytes);
             boolean ok = gatt.writeCharacteristic(c);
@@ -468,6 +480,17 @@ public class DeviceService {
                 executor.schedule(() -> internalWrite(gatt), 100, TimeUnit.MILLISECONDS);
             }
         }
+    }
+
+    private byte[] makePage(int seq, int totalLen, int offset, byte[] bytes) {
+        byte[] res = new byte[bytes.length+5];
+        System.arraycopy(bytes, 0, res, res.length - bytes.length, bytes.length);
+        res[0]=(byte)(seq & 0xFF);
+        res[1]=(byte)((totalLen >> 8) & 0xFF);
+        res[2]=(byte)((totalLen     ) & 0xFF);
+        res[3]=(byte)((offset >> 8) & 0xFF);
+        res[4]=(byte)((offset     ) & 0xFF);
+        return res;
     }
 
     private synchronized void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic c, int status) {
