@@ -465,7 +465,7 @@ public class DeviceService {
             int totalLen = msg.getLength();
             byte[] bytes = msg.next();
             UUID cUUID = msg.getCharacteristic().getUuid();
-            if (cUUID.equals(SEND_BITMAP_UUID)) {
+            if (bytes.length > 0 && cUUID.equals(SEND_BITMAP_UUID)) {
                 bytes = makePage(getSeq(cUUID), totalLen, offset, bytes);
             }
             BluetoothGattCharacteristic c = gatt.getService(SERVICE_UUID).getCharacteristic(cUUID);
@@ -540,12 +540,19 @@ public class DeviceService {
             int len = Math.min(bytes.length-offset, TX_SIZE);
             byte[] res = new byte[len];
             System.arraycopy(bytes, offset, res, 0, len);
-            offset+=len;
+            if (len == 0) {
+                /* Special case to send an empty msg at the end. This and isDone() work together to achieve that. */
+                offset++;
+            } else {
+                offset += len;
+            }
             return res;
         }
 
         public boolean isDone() {
-            return offset == bytes.length;
+            /* We use > so there is an empty msg in the end.
+             This is important since the las characteristicWrite may be automatically repeated later */
+            return offset > bytes.length;
         }
 
         public BluetoothGattCharacteristic getCharacteristic() {
