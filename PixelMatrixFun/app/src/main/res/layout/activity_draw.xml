@@ -62,69 +62,88 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal">
 
-            <Space
+            <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_weight="1" />
-
-            <ToggleButton
-                android:id="@+id/toggleButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:width="50dp"
-                android:background="#FFFFFF"
-                android:checked="true"
-                android:longClickable="true"
-                android:textAllCaps="false"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                android:textColor="@color/black"
-                android:textOff="Color"
-                android:textOn="* Color *" />
+                android:orientation="horizontal">
 
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/floatingActionButton2"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:background="#00FFFFFF"
-                android:clickable="true"
-                android:drawingCacheQuality="auto"
-                android:scaleX="1"
-                android:scaleY="1"
-                android:tint="#00FFFFFF"
-                app:backgroundTint="#00000000"
-                app:elevation="0dp"
-                app:fabSize="mini"
-                app:rippleColor="#00000000"
-                app:srcCompat="@android:drawable/ic_menu_add"
-                app:useCompatPadding="false" />
+                <Space
+                    android:layout_width="20dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
 
-            <Space
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_weight="1" />
+                <ToggleButton
+                    android:id="@+id/frontColorButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:width="60dp"
+                    android:background="#FFFFFF"
+                    android:checked="true"
+                    android:longClickable="false"
+                    android:textAllCaps="false"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="@color/black"
+                    android:textOff="Color"
+                    android:textOn="* Color *" />
 
-            <ToggleButton
-                android:id="@+id/toggleButton2"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:width="50dp"
-                android:background="#000000"
-                android:checked="false"
-                android:longClickable="true"
-                android:textAllCaps="false"
-                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
-                android:textColor="#FFFFFF"
-                android:textOff="Background"
-                android:textOn="* Background *"
-                android:textStyle="normal" />
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/floatingActionButton2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="#00FFFFFF"
+                    android:clickable="true"
+                    android:drawingCacheQuality="auto"
+                    android:scaleX="0.7"
+                    android:scaleY="0.7"
+                    android:tint="#00FFFFFF"
+                    android:translationX="-15dp"
+                    android:translationY="-15dp"
+                    app:backgroundTint="#00000000"
+                    app:elevation="0dp"
+                    app:fabSize="mini"
+                    app:rippleColor="#00000000"
+                    app:srcCompat="@android:drawable/ic_menu_add"
+                    app:useCompatPadding="false" />
 
-            <Space
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_weight="1" />
+                <ToggleButton
+                    android:id="@+id/backgroundColorButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:width="60dp"
+                    android:background="#000000"
+                    android:checked="false"
+                    android:longClickable="false"
+                    android:textAllCaps="false"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                    android:textColor="#FFFFFF"
+                    android:textOff="Background"
+                    android:textOn="* Background *"
+                    android:textStyle="normal" />
+
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/floatingActionButton4"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="#00FFFFFF"
+                    android:clickable="true"
+                    android:drawingCacheQuality="auto"
+                    android:scaleX="0.7"
+                    android:scaleY="0.7"
+                    android:tint="#00FFFFFF"
+                    android:translationX="-15dp"
+                    android:translationY="-15dp"
+                    app:backgroundTint="#00000000"
+                    app:elevation="0dp"
+                    app:fabSize="mini"
+                    app:rippleColor="#00000000"
+                    app:srcCompat="@android:drawable/ic_menu_add"
+                    app:useCompatPadding="false" />
+            </LinearLayout>
 
         </LinearLayout>
 
