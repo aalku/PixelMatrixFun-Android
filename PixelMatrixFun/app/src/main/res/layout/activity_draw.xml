@@ -86,8 +86,8 @@
                     android:textAllCaps="false"
                     android:textAppearance="@style/TextAppearance.AppCompat.Medium"
                     android:textColor="@color/black"
-                    android:textOff="Color"
-                    android:textOn="* Color *" />
+                    android:textOff="Pencil"
+                    android:textOn="Pencil" />
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/floatingActionButton2"
@@ -122,8 +122,8 @@
                     android:textAllCaps="false"
                     android:textAppearance="@style/TextAppearance.AppCompat.Medium"
                     android:textColor="#FFFFFF"
-                    android:textOff="Background"
-                    android:textOn="* Background *"
+                    android:textOff="Eraser"
+                    android:textOn="Eraser"
                     android:textStyle="normal" />
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton

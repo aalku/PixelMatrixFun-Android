@@ -4,11 +4,15 @@ import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
+import android.widget.ToggleButton;
+
+import com.google.android.material.resources.TextAppearance;
 
 import org.aalku.pixelmatrixfun.DrawView.DrawListener;
 
@@ -31,6 +35,8 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     private DeviceService deviceService;
     private final AtomicBoolean ready = new AtomicBoolean(false);
     private ScheduledFuture<?> initTask;
+    private ToggleButton frontColorButton;
+    private ToggleButton backgroundColorButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,6 +48,9 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
         deviceService.addStatusListener(statusListener);
         setStatusText(deviceService.getStatusText());
         drawView.setOnDrawListener(this);
+        frontColorButton = this.findViewById(R.id.frontColorButton);
+        backgroundColorButton = this.findViewById(R.id.backgroundColorButton);
+        onColorClick(null);
     }
 
     @Override
@@ -91,6 +100,18 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     }
 
     public void onColorClick(View view) {
-
+        ToggleButton selected;
+        ToggleButton other;
+        if (view != backgroundColorButton) {
+            selected = frontColorButton;
+            other = backgroundColorButton;
+        } else {
+            selected = backgroundColorButton;
+            other = frontColorButton;
+        }
+        selected.setChecked(true);
+        other.setChecked(false);
+        selected.setTypeface(null, Typeface.BOLD);
+        other.setTypeface(null, Typeface.NORMAL);
     }
 }
