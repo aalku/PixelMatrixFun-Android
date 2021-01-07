@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.widget.TextView;
 
 import org.aalku.pixelmatrixfun.DrawView.DrawListener;
@@ -87,5 +88,9 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     @Override
     public boolean isDrawAllowed() {
         return ready.get();
+    }
+
+    public void onColorClick(View view) {
+
     }
 }
