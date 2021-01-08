@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.ToggleButton;
 
@@ -33,10 +34,15 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 
     private Consumer<String> statusListener = s->setStatusText(s);
+    private Consumer<Boolean> connectionListener = c->onConnectionChanged(c);
+
     private DrawView drawView;
     private TextView statusText;
+    private Switch syncSwitch;
+    private TextView syncSwitchText;
+
     private DeviceService deviceService;
-    private final AtomicBoolean ready = new AtomicBoolean(false);
+
     private ScheduledFuture<?> initTask;
     private ColorSet frontColor;
     private ColorSet backgroundColor;
@@ -76,6 +82,10 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
         setContentView(R.layout.activity_draw);
         statusText = this.findViewById(R.id.statusText);
         drawView = this.findViewById(R.id.drawView);
+        syncSwitch = this.findViewById(R.id.syncSwitch);
+        syncSwitchText = this.findViewById(R.id.syncText);
+
+        deviceService.addConnectionListener(connectionListener);
         deviceService.addStatusListener(statusListener);
         setStatusText(deviceService.getStatusText());
         drawView.setOnDrawListener(this);
@@ -94,26 +104,15 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     @Override
     protected void onResume() {
         super.onResume();
-        // CompletionStage<Boolean> cf = deviceService.sendBitmap(drawView.getBitmap());
-        this.initTask = executor.scheduleWithFixedDelay(()->{
-            if (!ready.get()) {
-                drawView.getBitmap().eraseColor(Color.BLACK);
-                CompletionStage<Boolean> cf = deviceService.clearBitmap(Color.BLACK);
-                cf.whenComplete((r, e) -> {
-                    ready.set(true);
-                });
-            } else {
-                if (initTask != null) {
-                    initTask.cancel(false);
-                    initTask = null;
-                }
-            }
-        }, 0, 3, TimeUnit.SECONDS);
+        syncSwitch.setChecked(false);
+        syncSwitch.setEnabled(deviceService.isConnected());
+        syncSwitchText.setEnabled(syncSwitch.isEnabled());
     }
 
     @Override
     protected void onDestroy() {
-        DeviceService.instance.removeStatusListener(statusListener);
+        deviceService.removeStatusListener(statusListener);
+        deviceService.removeConnectionListener(connectionListener);
         executor.shutdown();
         super.onDestroy();
     }
@@ -124,17 +123,10 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     }
 
     @Override
-    public boolean notifyPixel(int x, int y, int color) {
-        if (isDrawAllowed()) {
+    public void notifyPixel(int x, int y, int color) {
+        if (syncSwitch.isChecked()) {
             deviceService.sendPixel(x, y, color);
-            return true;
         }
-        return false;
-    }
-
-    @Override
-    public boolean isDrawAllowed() {
-        return ready.get();
     }
 
     public void onColorClick(View view) {
@@ -190,6 +182,41 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
         }
         hsv[1] = hsv[1] * 0.2f;
         return Color.HSVToColor(hsv);
+    }
+
+    private void onConnectionChanged(Boolean c) {
+        if (c) {
+            syncSwitch.setEnabled(true);
+        } else {
+            syncSwitch.setEnabled(false);
+        }
+        syncSwitch.setChecked(false);
+        syncSwitchText.setEnabled(syncSwitch.isEnabled());
+    }
+
+    public void onSyncClick(View view) {
+        if (view == syncSwitchText) {
+            if (syncSwitch.isEnabled()) {
+                syncSwitch.setChecked(!syncSwitch.isChecked());
+                onSyncClick(syncSwitch);
+            }
+        } else {
+            if (syncSwitch.isEnabled() && syncSwitch.isChecked()) {
+                syncSwitch.setEnabled(false);
+                syncSwitchText.setEnabled(syncSwitch.isEnabled());
+                // CompletionStage<Boolean> cf = deviceService.clearBitmap(Color.BLACK);
+                CompletionStage<Boolean> cf = deviceService.sendBitmap(drawView.getBitmap());
+                cf.whenComplete((r, e) -> {
+                    this.runOnUiThread(()->{
+                        syncSwitch.setEnabled(true);
+                        syncSwitchText.setEnabled(syncSwitch.isEnabled());
+                    });
+                });
+            } else {
+                syncSwitch.setEnabled(deviceService.isConnected());
+            }
+            syncSwitchText.setEnabled(syncSwitch.isEnabled());
+        }
     }
 
 }

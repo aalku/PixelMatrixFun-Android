@@ -68,21 +68,14 @@ public class DrawView extends View {
 
     private void drawPixel(int x, int y, int width, int height) {
 
-        boolean ok =  onDrawListener == null || onDrawListener.isDrawAllowed();
-        if (!ok) {
-            return;
-        }
-
         int rx = Math.max(Math.min(imageWidth*x/width,imageHeight - 1), 0);
         int ry = Math.max(Math.min(imageHeight*y/height, imageHeight - 1), 0);
         Log.d("DRAW", String.format("[%s,%s] out of [%s,%s]", rx, ry, bitmap.getWidth(), bitmap.getHeight()));
         int prev = bitmap.getPixel(rx, ry);
         if (prev != color) {
-            ok =  onDrawListener == null || onDrawListener.notifyPixel(rx, ry, color);
-            if (ok) {
-                bitmap.setPixel(rx, ry, color);
-                invalidate();
-            }
+            onDrawListener.notifyPixel(rx, ry, color);
+            bitmap.setPixel(rx, ry, color);
+            invalidate();
         }
     }
 
@@ -142,8 +135,6 @@ public class DrawView extends View {
     }
 
     interface DrawListener {
-        boolean notifyPixel(int x, int y, int color);
-
-        boolean isDrawAllowed();
+        void notifyPixel(int x, int y, int color);
     }
 }

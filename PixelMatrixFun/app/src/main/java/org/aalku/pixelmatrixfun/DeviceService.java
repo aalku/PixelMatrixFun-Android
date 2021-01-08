@@ -77,6 +77,8 @@ public class DeviceService {
     private Collection<Consumer<String>> statusListeners = new ArrayList<>();
     private Context context;
 
+    private Collection<Consumer<Boolean>> connectionListeners = new ArrayList<>();
+
     private ConcurrentHashMap<UUID, AtomicInteger> seq = new ConcurrentHashMap<>();
 
     @RequiresApi(api = Build.VERSION_CODES.N)
@@ -366,6 +368,7 @@ public class DeviceService {
             bleConnected.set(true);
             bleConnectingSince.set(0L);
             sendLock.set(false);
+            notifyConnectionListeners(true);
         }
     }
 
@@ -395,6 +398,7 @@ public class DeviceService {
             serviceRef.set(null);
             gattRef.set(null);
             bleConnectingSince.set(0L);
+            notifyConnectionListeners(false);
         }
     }
 
@@ -423,6 +427,16 @@ public class DeviceService {
     public void removeStatusListener(Consumer<String> x) {
         statusListeners.remove(x);
         Log.d("StatusListener", "removeStatusListener(" + x + "); total=" + statusListeners.size());
+    }
+
+    public void removeConnectionListener(Consumer<Boolean> x) {
+        connectionListeners.remove(x);
+        Log.d("ConnectionListener", "removeConnectionListener(" + x + "); total=" + connectionListeners.size());
+    }
+
+    public void addConnectionListener(Consumer<Boolean> x) {
+        connectionListeners.add(x);
+        Log.d("ConnectionListener", "addConnectionListener(" + x + "); total=" + connectionListeners.size());
     }
 
     @RequiresApi(api = Build.VERSION_CODES.N)
@@ -628,6 +642,16 @@ public class DeviceService {
         public boolean isFull() {
             return count == MAX;
         }
+    }
+
+    private void notifyConnectionListeners(boolean connected) {
+        for (Consumer<Boolean> l: connectionListeners) {
+            l.accept(connected);
+        }
+    }
+
+    public boolean isConnected() {
+        return bleConnected.get();
     }
 
 }

@@ -179,17 +179,20 @@
         android:layout_marginLeft="10dp"
         android:layout_marginTop="16dp"
         android:checked="false"
+        android:onClick="onSyncClick"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         tools:checked="false" />
 
     <TextView
-        android:id="@+id/textView"
+        android:id="@+id/syncText"
         android:layout_width="wrap_content"
         android:layout_height="25dp"
         android:layout_marginStart="3dp"
         android:layout_marginLeft="3dp"
+        android:clickable="true"
         android:gravity="left|center_vertical"
+        android:onClick="onSyncClick"
         android:text="Synchronized drawing"
         app:layout_constraintBottom_toBottomOf="@+id/syncSwitch"
         app:layout_constraintStart_toEndOf="@+id/syncSwitch"
