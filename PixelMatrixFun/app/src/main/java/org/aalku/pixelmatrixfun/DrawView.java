@@ -90,6 +90,9 @@ public class DrawView extends View {
                     break;
                 case MotionEvent.ACTION_MOVE :
                     drawPixel((int)x, (int)y, this.getWidth(), this.getHeight());
+                    for (int i = 0; i < event.getHistorySize(); i++) {
+                        drawPixel((int)event.getHistoricalX(p, i), (int)event.getHistoricalY(p, i), this.getWidth(), this.getHeight());
+                    }
                     break;
                 case MotionEvent.ACTION_UP :
                     //touchUp();
