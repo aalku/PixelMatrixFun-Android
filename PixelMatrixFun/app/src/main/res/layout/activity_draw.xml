@@ -90,13 +90,14 @@
                     android:textOn="Pencil" />
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/floatingActionButton2"
+                    android:id="@+id/frontChangeColor"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:background="#00FFFFFF"
                     android:clickable="true"
                     android:drawingCacheQuality="auto"
+                    android:onClick="onColorClick"
                     android:scaleX="0.7"
                     android:scaleY="0.7"
                     android:tint="#00FFFFFF"
@@ -127,13 +128,14 @@
                     android:textStyle="normal" />
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/floatingActionButton4"
+                    android:id="@+id/backgroundChangeColor"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:background="#00FFFFFF"
                     android:clickable="true"
                     android:drawingCacheQuality="auto"
+                    android:onClick="onColorClick"
                     android:scaleX="0.7"
                     android:scaleY="0.7"
                     android:tint="#00FFFFFF"

@@ -12,6 +12,7 @@ import android.view.View;
 import android.widget.TextView;
 import android.widget.ToggleButton;
 
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.resources.TextAppearance;
 
 import org.aalku.pixelmatrixfun.DrawView.DrawListener;
@@ -23,6 +24,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+
+import petrov.kristiyan.colorpicker.ColorPicker;
 
 @RequiresApi(api = Build.VERSION_CODES.N)
 public class DrawActivity extends AppCompatActivity implements DrawListener {
@@ -40,12 +43,14 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
 
     private class ColorSet {
         private final ToggleButton button;
+        private final FloatingActionButton changeColorButton;
         int color;
         int textColor;
         boolean checked;
 
-        public ColorSet(ToggleButton button, int color, boolean checked) {
+        public ColorSet(ToggleButton button, FloatingActionButton changeColorButton, int color, boolean checked) {
             this.button = button;
+            this.changeColorButton = changeColorButton;
             this.color = color;
             this.checked = checked;
             update();
@@ -74,8 +79,16 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
         deviceService.addStatusListener(statusListener);
         setStatusText(deviceService.getStatusText());
         drawView.setOnDrawListener(this);
-        frontColor = new ColorSet(this.findViewById(R.id.frontColorButton), Color.WHITE, true);
-        backgroundColor = new ColorSet(this.findViewById(R.id.backgroundColorButton), Color.BLACK, false);
+        frontColor = new ColorSet(
+                this.findViewById(R.id.frontColorButton),
+                this.findViewById(R.id.frontChangeColor),
+                Color.WHITE,
+                true);
+        backgroundColor = new ColorSet(
+                this.findViewById(R.id.backgroundColorButton),
+                this.findViewById(R.id.backgroundChangeColor),
+                Color.BLACK,
+                false);
     }
 
     @Override
@@ -125,10 +138,45 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     }
 
     public void onColorClick(View view) {
-        frontColor.checked = (view != backgroundColor.button);
+        frontColor.checked = (view != backgroundColor.button && view != backgroundColor.changeColorButton);
         backgroundColor.checked = !frontColor.checked;
         frontColor.update();
         backgroundColor.update();
+        if (view == frontColor.changeColorButton || view == backgroundColor.changeColorButton) {
+            ColorSet c = view == backgroundColor.changeColorButton ? backgroundColor : frontColor;
+            ColorPicker colorPicker = new ColorPicker(this);
+            colorPicker.setOnFastChooseColorListener(new ColorPicker.OnFastChooseColorListener() {
+                @Override
+                public void setOnFastChooseColorListener(int position, int color) {
+                    c.color = color;
+                    c.update();
+                }
+
+                @Override
+                public void onCancel() {
+                }
+            })
+                    .setColumns(4)
+                    .setColors(
+                            0xFF000000,
+                            0xFF555555,
+                            0xFF0000AA,
+                            0xFF5555FF,
+                            0xFF00AA00,
+                            0xFF55FF55,
+                            0xFF00AAAA,
+                            0xFF55FFFF,
+                            0xFFAA0000,
+                            0xFFFF5555,
+                            0xFFAA00AA,
+                            0xFFFF55FF,
+                            0xFFAA5500,
+                            0xFFFFFF55,
+                            0xFFAAAAAA,
+                            0xFFFFFFFF)
+                    .setDefaultColorButton(c.color)
+                    .show();
+        }
     }
 
     public static int getContrastVersionForColor(int color) {
