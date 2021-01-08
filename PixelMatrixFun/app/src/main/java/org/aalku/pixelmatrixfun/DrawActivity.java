@@ -35,8 +35,34 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     private DeviceService deviceService;
     private final AtomicBoolean ready = new AtomicBoolean(false);
     private ScheduledFuture<?> initTask;
-    private ToggleButton frontColorButton;
-    private ToggleButton backgroundColorButton;
+    private ColorSet frontColor;
+    private ColorSet backgroundColor;
+
+    private class ColorSet {
+        private final ToggleButton button;
+        int color;
+        int textColor;
+        boolean checked;
+
+        public ColorSet(ToggleButton button, int color, boolean checked) {
+            this.button = button;
+            this.color = color;
+            this.checked = checked;
+            update();
+        }
+
+        private void update() {
+            textColor = getContrastVersionForColor(color);
+
+            button.setTypeface(null, checked ? Typeface.BOLD : Typeface.NORMAL);
+            button.setBackgroundColor(color);
+            button.setTextColor(textColor);
+            if (checked) {
+                drawView.setColor(color);
+            }
+        }
+
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,9 +74,8 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
         deviceService.addStatusListener(statusListener);
         setStatusText(deviceService.getStatusText());
         drawView.setOnDrawListener(this);
-        frontColorButton = this.findViewById(R.id.frontColorButton);
-        backgroundColorButton = this.findViewById(R.id.backgroundColorButton);
-        onColorClick(null);
+        frontColor = new ColorSet(this.findViewById(R.id.frontColorButton), Color.WHITE, true);
+        backgroundColor = new ColorSet(this.findViewById(R.id.backgroundColorButton), Color.BLACK, false);
     }
 
     @Override
@@ -100,18 +125,23 @@ public class DrawActivity extends AppCompatActivity implements DrawListener {
     }
 
     public void onColorClick(View view) {
-        ToggleButton selected;
-        ToggleButton other;
-        if (view != backgroundColorButton) {
-            selected = frontColorButton;
-            other = backgroundColorButton;
-        } else {
-            selected = backgroundColorButton;
-            other = frontColorButton;
-        }
-        selected.setChecked(true);
-        other.setChecked(false);
-        selected.setTypeface(null, Typeface.BOLD);
-        other.setTypeface(null, Typeface.NORMAL);
+        frontColor.checked = (view != backgroundColor.button);
+        backgroundColor.checked = !frontColor.checked;
+        frontColor.update();
+        backgroundColor.update();
     }
+
+    public static int getContrastVersionForColor(int color) {
+        float[] hsv = new float[3];
+        Color.RGBToHSV(Color.red(color), Color.green(color), Color.blue(color),
+                hsv);
+        if (hsv[2] < 0.5) {
+            hsv[2] = 0.7f;
+        } else {
+            hsv[2] = 0.3f;
+        }
+        hsv[1] = hsv[1] * 0.2f;
+        return Color.HSVToColor(hsv);
+    }
+
 }

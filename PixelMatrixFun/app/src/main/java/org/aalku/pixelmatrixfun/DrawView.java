@@ -25,6 +25,16 @@ public class DrawView extends View {
     private final Paint paint = new Paint(0);
     private DrawListener onDrawListener = null;
 
+    public int getColor() {
+        return color;
+    }
+
+    public void setColor(int color) {
+        this.color = color;
+    }
+
+    private volatile int color = Color.WHITE;
+
     public DrawView(Context context) {
         this(context, null);
     }
@@ -66,7 +76,6 @@ public class DrawView extends View {
         int rx = Math.max(Math.min(imageWidth*x/width,imageHeight - 1), 0);
         int ry = Math.max(Math.min(imageHeight*y/height, imageHeight - 1), 0);
         Log.d("DRAW", String.format("[%s,%s] out of [%s,%s]", rx, ry, bitmap.getWidth(), bitmap.getHeight()));
-        int color = Color.WHITE;
         int prev = bitmap.getPixel(rx, ry);
         if (prev != color) {
             ok =  onDrawListener == null || onDrawListener.notifyPixel(rx, ry, color);
